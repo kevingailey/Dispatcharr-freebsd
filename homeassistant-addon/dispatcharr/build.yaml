@@ -1,0 +1,9 @@
+# Home Assistant Add-on: Dispatcharr
+# Build configuration
+
+build_from:
+  amd64: ghcr.io/dispatcharr/dispatcharr:latest
+  aarch64: ghcr.io/dispatcharr/dispatcharr:latest
+
+args:
+  BUILD_FROM: ghcr.io/dispatcharr/dispatcharr:latest
