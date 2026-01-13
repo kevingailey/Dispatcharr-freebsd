@@ -1,0 +1,59 @@
+#!/bin/sh
+
+# PROVIDE: dispatcharr_daphne
+# REQUIRE: NETWORKING dispatcharr
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable dispatcharr_daphne:
+#
+# dispatcharr_daphne_enable="YES"
+#
+# Optional settings (defaults shown):
+# dispatcharr_daphne_port="8001"
+
+. /etc/rc.subr
+
+name="dispatcharr_daphne"
+rcvar="dispatcharr_daphne_enable"
+
+load_rc_config $name
+
+: ${dispatcharr_daphne_enable:="NO"}
+: ${dispatcharr_daphne_user:="%%DISPATCHARR_USER%%"}
+: ${dispatcharr_daphne_group:="%%DISPATCHARR_GROUP%%"}
+: ${dispatcharr_daphne_dir:="%%DISPATCHARR_DIR%%"}
+: ${dispatcharr_daphne_rundir:="%%DISPATCHARR_RUNDIR%%"}
+: ${dispatcharr_daphne_logdir:="%%DISPATCHARR_LOGDIR%%"}
+: ${dispatcharr_daphne_host:="127.0.0.1"}
+: ${dispatcharr_daphne_port:="8001"}
+: ${dispatcharr_config:="%%ETCDIR%%/dispatcharr.conf"}
+
+pidfile="${dispatcharr_daphne_rundir}/dispatcharr_daphne.pid"
+command="/usr/sbin/daemon"
+procname="%%PYTHON_CMD%%"
+
+# Source configuration file
+if [ -f "${dispatcharr_config}" ]; then
+    . "${dispatcharr_config}"
+fi
+
+command_args="-f -p ${pidfile} -u ${dispatcharr_daphne_user} \
+    %%PYTHON_CMD%% -m daphne \
+    -b ${dispatcharr_daphne_host} \
+    -p ${dispatcharr_daphne_port} \
+    --root-path=${dispatcharr_daphne_dir} \
+    --access-log ${dispatcharr_daphne_logdir}/daphne-access.log \
+    dispatcharr.asgi:application"
+
+required_files="${dispatcharr_daphne_dir}/dispatcharr/asgi.py"
+
+start_precmd="dispatcharr_daphne_prestart"
+
+dispatcharr_daphne_prestart()
+{
+    install -d -o ${dispatcharr_daphne_user} -g ${dispatcharr_daphne_group} ${dispatcharr_daphne_rundir}
+    install -d -o ${dispatcharr_daphne_user} -g ${dispatcharr_daphne_group} ${dispatcharr_daphne_logdir}
+    cd ${dispatcharr_daphne_dir}
+}
+
+run_rc_command "$1"

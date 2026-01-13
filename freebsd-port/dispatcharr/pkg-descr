@@ -1,0 +1,24 @@
+Dispatcharr is a self-hosted IPTV stream management platform that provides
+intelligent stream management, EPG auto-matching, and compatibility with
+popular media centers like Plex and Jellyfin.
+
+Key Features:
+- IPTV Stream Management: Proxy and manage IPTV streams with bandwidth
+  optimization and failover support
+- EPG Auto-Matching: AI-powered Electronic Program Guide matching using
+  sentence transformers and fuzzy matching
+- HDHomeRun Emulation: Compatible with Plex Live TV, Jellyfin, and other
+  HDHomeRun clients for seamless integration
+- M3U/XMLTV Support: Import and export M3U playlists and XMLTV EPG data
+- VOD Support: Manage Video on Demand content for movies and TV series
+- Real-time Statistics: Monitor stream health and performance through a
+  modern web dashboard
+- Smart Playlists: Filter, group, and organize streams with automatic
+  failover support
+
+The web interface is accessible on port 9191 by default. HDHomeRun
+emulation is available on port 5004 for media center integration.
+
+This port includes Django-based backend with Celery for background tasks,
+Redis for caching and message queue, PostgreSQL for data storage, and
+Nginx as a reverse proxy.

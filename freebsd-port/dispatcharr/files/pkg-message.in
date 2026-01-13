@@ -1,0 +1,6 @@
+[
+{
+  "type": "install",
+  "message": "Dispatcharr has been installed.\n\n1. Configure the application:\n\n   Edit %%ETCDIR%%/dispatcharr.conf and set:\n   - DJANGO_SECRET_KEY (generate with: python -c \"import secrets; print(secrets.token_urlsafe(64))\")\n   - POSTGRES_PASSWORD\n   - Other settings as needed\n\n2. Set up PostgreSQL database:\n\n   service postgresql enable\n   service postgresql initdb\n   service postgresql start\n   \n   su - postgres\n   createuser -P dispatch\n   createdb -O dispatch dispatcharr\n   exit\n\n3. Enable Redis:\n\n   sysrc redis_enable=YES\n   service redis start\n\n4. Configure Nginx:\n\n   cp %%PREFIX%%/etc/nginx/dispatcharr.conf.sample %%PREFIX%%/etc/nginx/dispatcharr.conf\n   # Edit nginx.conf to include: include dispatcharr.conf;\n   service nginx restart\n\n5. Enable and start Dispatcharr services:\n\n   sysrc dispatcharr_enable=YES\n   sysrc dispatcharr_celery_enable=YES\n   sysrc dispatcharr_celerybeat_enable=YES\n   sysrc dispatcharr_daphne_enable=YES\n   \n   service dispatcharr start\n   service dispatcharr_celery start\n   service dispatcharr_celerybeat start\n   service dispatcharr_daphne start\n\n6. Access the web interface at:\n\n   http://your-server-ip:9191\n\nFor more information, see: https://github.com/Dispatcharr/Dispatcharr"
+}
+]

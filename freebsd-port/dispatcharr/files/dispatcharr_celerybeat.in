@@ -1,0 +1,60 @@
+#!/bin/sh
+
+# PROVIDE: dispatcharr_celerybeat
+# REQUIRE: NETWORKING redis dispatcharr
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable dispatcharr_celerybeat:
+#
+# dispatcharr_celerybeat_enable="YES"
+
+. /etc/rc.subr
+
+name="dispatcharr_celerybeat"
+rcvar="dispatcharr_celerybeat_enable"
+
+load_rc_config $name
+
+: ${dispatcharr_celerybeat_enable:="NO"}
+: ${dispatcharr_celerybeat_user:="%%DISPATCHARR_USER%%"}
+: ${dispatcharr_celerybeat_group:="%%DISPATCHARR_GROUP%%"}
+: ${dispatcharr_celerybeat_dir:="%%DISPATCHARR_DIR%%"}
+: ${dispatcharr_celerybeat_rundir:="%%DISPATCHARR_RUNDIR%%"}
+: ${dispatcharr_celerybeat_logdir:="%%DISPATCHARR_LOGDIR%%"}
+: ${dispatcharr_celerybeat_loglevel:="info"}
+: ${dispatcharr_config:="%%ETCDIR%%/dispatcharr.conf"}
+
+pidfile="${dispatcharr_celerybeat_rundir}/dispatcharr_celerybeat.pid"
+command="/usr/sbin/daemon"
+procname="%%PYTHON_CMD%%"
+
+# Source configuration file
+if [ -f "${dispatcharr_config}" ]; then
+    . "${dispatcharr_config}"
+fi
+
+command_args="-f -p ${pidfile} -u ${dispatcharr_celerybeat_user} \
+    %%PYTHON_CMD%% -m celery \
+    -A dispatcharr beat \
+    -l ${dispatcharr_celerybeat_loglevel} \
+    --workdir=${dispatcharr_celerybeat_dir} \
+    --logfile=${dispatcharr_celerybeat_logdir}/celerybeat.log \
+    --schedule=${dispatcharr_celerybeat_rundir}/celerybeat-schedule"
+
+required_files="${dispatcharr_celerybeat_dir}/manage.py"
+
+start_precmd="dispatcharr_celerybeat_prestart"
+
+dispatcharr_celerybeat_prestart()
+{
+    install -d -o ${dispatcharr_celerybeat_user} -g ${dispatcharr_celerybeat_group} ${dispatcharr_celerybeat_rundir}
+    install -d -o ${dispatcharr_celerybeat_user} -g ${dispatcharr_celerybeat_group} ${dispatcharr_celerybeat_logdir}
+
+    # Wait for Redis
+    echo "Waiting for Redis..."
+    until redis-cli ping >/dev/null 2>&1; do
+        sleep 1
+    done
+}
+
+run_rc_command "$1"

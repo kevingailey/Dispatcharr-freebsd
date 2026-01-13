@@ -1,0 +1,100 @@
+#!/bin/sh
+
+# PROVIDE: dispatcharr
+# REQUIRE: NETWORKING postgresql redis
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable dispatcharr:
+#
+# dispatcharr_enable="YES"
+#
+# Optional settings (defaults shown):
+# dispatcharr_user="%%DISPATCHARR_USER%%"
+# dispatcharr_group="%%DISPATCHARR_GROUP%%"
+# dispatcharr_workers="4"
+# dispatcharr_timeout="300"
+
+. /etc/rc.subr
+
+name="dispatcharr"
+rcvar="dispatcharr_enable"
+
+load_rc_config $name
+
+: ${dispatcharr_enable:="NO"}
+: ${dispatcharr_user:="%%DISPATCHARR_USER%%"}
+: ${dispatcharr_group:="%%DISPATCHARR_GROUP%%"}
+: ${dispatcharr_dir:="%%DISPATCHARR_DIR%%"}
+: ${dispatcharr_datadir:="%%DISPATCHARR_DATADIR%%"}
+: ${dispatcharr_logdir:="%%DISPATCHARR_LOGDIR%%"}
+: ${dispatcharr_rundir:="%%DISPATCHARR_RUNDIR%%"}
+: ${dispatcharr_socket:="${dispatcharr_rundir}/dispatcharr.sock"}
+: ${dispatcharr_workers:="4"}
+: ${dispatcharr_timeout:="300"}
+: ${dispatcharr_config:="%%ETCDIR%%/dispatcharr.conf"}
+
+pidfile="${dispatcharr_rundir}/dispatcharr.pid"
+command="/usr/sbin/daemon"
+procname="%%PYTHON_CMD%%"
+
+# Source configuration file
+if [ -f "${dispatcharr_config}" ]; then
+    . "${dispatcharr_config}"
+fi
+
+command_args="-f -p ${pidfile} -u ${dispatcharr_user} \
+    %%PYTHON_CMD%% -m gunicorn \
+    --workers=${dispatcharr_workers} \
+    --worker-class=gevent \
+    --timeout=${dispatcharr_timeout} \
+    --bind unix:${dispatcharr_socket} \
+    --chdir ${dispatcharr_dir} \
+    --access-logfile ${dispatcharr_logdir}/access.log \
+    --error-logfile ${dispatcharr_logdir}/error.log \
+    dispatcharr.wsgi:application"
+
+required_files="${dispatcharr_dir}/manage.py"
+
+start_precmd="dispatcharr_prestart"
+stop_postcmd="dispatcharr_poststop"
+
+dispatcharr_prestart()
+{
+    # Create required directories
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_rundir}
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_logdir}
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_datadir}
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_datadir}/logos
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_datadir}/uploads
+    install -d -o ${dispatcharr_user} -g ${dispatcharr_group} ${dispatcharr_datadir}/backups
+
+    # Wait for PostgreSQL
+    echo "Waiting for PostgreSQL..."
+    until pg_isready -h ${POSTGRES_HOST:-localhost} >/dev/null 2>&1; do
+        sleep 1
+    done
+
+    # Wait for Redis
+    echo "Waiting for Redis..."
+    until redis-cli ping >/dev/null 2>&1; do
+        sleep 1
+    done
+
+    # Run migrations on first start or after upgrade
+    if [ ! -f "${dispatcharr_datadir}/.migrated" ] || \
+       [ "${dispatcharr_dir}/manage.py" -nt "${dispatcharr_datadir}/.migrated" ]; then
+        echo "Running database migrations..."
+        cd ${dispatcharr_dir}
+        su -m ${dispatcharr_user} -c "%%PYTHON_CMD%% manage.py migrate --noinput" || true
+        su -m ${dispatcharr_user} -c "%%PYTHON_CMD%% manage.py collectstatic --noinput" || true
+        touch "${dispatcharr_datadir}/.migrated"
+    fi
+}
+
+dispatcharr_poststop()
+{
+    rm -f ${dispatcharr_socket} 2>/dev/null
+    rm -f ${pidfile} 2>/dev/null
+}
+
+run_rc_command "$1"

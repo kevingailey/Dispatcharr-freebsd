@@ -1,0 +1,61 @@
+#!/bin/sh
+
+# PROVIDE: dispatcharr_celery
+# REQUIRE: NETWORKING redis dispatcharr
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable dispatcharr_celery:
+#
+# dispatcharr_celery_enable="YES"
+
+. /etc/rc.subr
+
+name="dispatcharr_celery"
+rcvar="dispatcharr_celery_enable"
+
+load_rc_config $name
+
+: ${dispatcharr_celery_enable:="NO"}
+: ${dispatcharr_celery_user:="%%DISPATCHARR_USER%%"}
+: ${dispatcharr_celery_group:="%%DISPATCHARR_GROUP%%"}
+: ${dispatcharr_celery_dir:="%%DISPATCHARR_DIR%%"}
+: ${dispatcharr_celery_rundir:="%%DISPATCHARR_RUNDIR%%"}
+: ${dispatcharr_celery_logdir:="%%DISPATCHARR_LOGDIR%%"}
+: ${dispatcharr_celery_loglevel:="info"}
+: ${dispatcharr_celery_concurrency:="4"}
+: ${dispatcharr_config:="%%ETCDIR%%/dispatcharr.conf"}
+
+pidfile="${dispatcharr_celery_rundir}/dispatcharr_celery.pid"
+command="/usr/sbin/daemon"
+procname="%%PYTHON_CMD%%"
+
+# Source configuration file
+if [ -f "${dispatcharr_config}" ]; then
+    . "${dispatcharr_config}"
+fi
+
+command_args="-f -p ${pidfile} -u ${dispatcharr_celery_user} \
+    %%PYTHON_CMD%% -m celery \
+    -A dispatcharr worker \
+    -l ${dispatcharr_celery_loglevel} \
+    --concurrency=${dispatcharr_celery_concurrency} \
+    --workdir=${dispatcharr_celery_dir} \
+    --logfile=${dispatcharr_celery_logdir}/celery.log"
+
+required_files="${dispatcharr_celery_dir}/manage.py"
+
+start_precmd="dispatcharr_celery_prestart"
+
+dispatcharr_celery_prestart()
+{
+    install -d -o ${dispatcharr_celery_user} -g ${dispatcharr_celery_group} ${dispatcharr_celery_rundir}
+    install -d -o ${dispatcharr_celery_user} -g ${dispatcharr_celery_group} ${dispatcharr_celery_logdir}
+
+    # Wait for Redis
+    echo "Waiting for Redis..."
+    until redis-cli ping >/dev/null 2>&1; do
+        sleep 1
+    done
+}
+
+run_rc_command "$1"
