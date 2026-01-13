@@ -1,0 +1,14 @@
+@sample etc/dispatcharr/dispatcharr.conf.sample
+@sample etc/nginx/dispatcharr.conf.sample
+@owner %%DISPATCHARR_USER%%
+@group %%DISPATCHARR_GROUP%%
+@dir %%DISPATCHARR_DIR%%
+@dir %%DISPATCHARR_DATADIR%%
+@dir %%DISPATCHARR_DATADIR%%/logos
+@dir %%DISPATCHARR_DATADIR%%/uploads
+@dir %%DISPATCHARR_DATADIR%%/backups
+@dir %%DISPATCHARR_DATADIR%%/plugins
+@dir %%DISPATCHARR_LOGDIR%%
+@dir(%%DISPATCHARR_USER%%,%%DISPATCHARR_GROUP%%,) %%DISPATCHARR_RUNDIR%%
+@owner
+@group

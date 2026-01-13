@@ -1,0 +1,99 @@
+#!/command/with-contenv bash
+# ==============================================================================
+# Home Assistant Add-on: Dispatcharr
+# Main service runner
+# ==============================================================================
+
+set -e
+
+# Source environment if available
+if [ -f /var/run/s6/container_environment/dispatcharr.env ]; then
+    set -a
+    source /var/run/s6/container_environment/dispatcharr.env
+    set +a
+fi
+
+# Set default environment variables
+export DISPATCHARR_ENV=${DISPATCHARR_ENV:-aio}
+export DISPATCHARR_LOG_LEVEL=${DISPATCHARR_LOG_LEVEL:-info}
+export POSTGRES_DB=${POSTGRES_DB:-dispatcharr}
+export POSTGRES_USER=${POSTGRES_USER:-dispatch}
+export POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secret}
+export POSTGRES_HOST=${POSTGRES_HOST:-localhost}
+export POSTGRES_PORT=${POSTGRES_PORT:-5432}
+export REDIS_HOST=${REDIS_HOST:-localhost}
+export REDIS_DB=${REDIS_DB:-0}
+export DISPATCHARR_PORT=${DISPATCHARR_PORT:-9191}
+export POSTGRES_DIR=/data/dispatcharr/db
+export SECRET_FILE="/data/dispatcharr/jwt"
+export VIRTUAL_ENV=/dispatcharrpy
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# PostgreSQL version detection
+export PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | sort -V | tail -n 1 || echo "17")
+export PG_BINDIR="/usr/lib/postgresql/${PG_VERSION}/bin"
+
+echo "Starting Dispatcharr..."
+
+# Generate Django secret key if needed
+if [ ! -f "$SECRET_FILE" ]; then
+    echo "Generating new Django secret key..."
+    mkdir -p "$(dirname "$SECRET_FILE")"
+    python3 -c "import secrets; print(secrets.token_urlsafe(64))" > "$SECRET_FILE"
+    chmod 600 "$SECRET_FILE"
+fi
+export DJANGO_SECRET_KEY="$(cat "$SECRET_FILE")"
+
+# Initialize PostgreSQL if needed
+if [ ! -d "${POSTGRES_DIR}/base" ]; then
+    echo "Initializing PostgreSQL database..."
+    mkdir -p "${POSTGRES_DIR}"
+    chown -R postgres:postgres "${POSTGRES_DIR}"
+    su - postgres -c "${PG_BINDIR}/initdb -D ${POSTGRES_DIR} -E UTF8 --locale=C.UTF-8"
+
+    # Configure PostgreSQL
+    echo "host all all 0.0.0.0/0 md5" >> "${POSTGRES_DIR}/pg_hba.conf"
+    echo "listen_addresses = 'localhost'" >> "${POSTGRES_DIR}/postgresql.conf"
+fi
+
+# Start PostgreSQL
+echo "Starting PostgreSQL..."
+chown -R postgres:postgres "${POSTGRES_DIR}"
+su - postgres -c "${PG_BINDIR}/pg_ctl -D ${POSTGRES_DIR} start -w -t 300 -o '-c port=${POSTGRES_PORT}'"
+
+# Wait for PostgreSQL
+until su - postgres -c "${PG_BINDIR}/pg_isready -h ${POSTGRES_HOST} -p ${POSTGRES_PORT}" >/dev/null 2>&1; do
+    echo "Waiting for PostgreSQL..."
+    sleep 1
+done
+echo "PostgreSQL is ready"
+
+# Create database user and database if they don't exist
+su - postgres -c "psql -p ${POSTGRES_PORT} -tc \"SELECT 1 FROM pg_roles WHERE rolname='${POSTGRES_USER}'\" | grep -q 1 || \
+    psql -p ${POSTGRES_PORT} -c \"CREATE USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}' CREATEDB SUPERUSER;\""
+su - postgres -c "psql -p ${POSTGRES_PORT} -tc \"SELECT 1 FROM pg_database WHERE datname='${POSTGRES_DB}'\" | grep -q 1 || \
+    psql -p ${POSTGRES_PORT} -c \"CREATE DATABASE ${POSTGRES_DB} OWNER ${POSTGRES_USER} ENCODING 'UTF8';\""
+
+# Start Redis
+echo "Starting Redis..."
+redis-server --daemonize yes --bind 127.0.0.1
+sleep 1
+echo "Redis is ready"
+
+# Run Django migrations
+echo "Running database migrations..."
+cd /app
+python manage.py migrate --noinput
+python manage.py collectstatic --noinput
+
+# Start Nginx
+echo "Starting Nginx..."
+nginx
+
+# Start Celery worker
+echo "Starting Celery worker..."
+celery -A dispatcharr worker -l "${DISPATCHARR_LOG_LEVEL}" &
+
+# Start uWSGI
+echo "Starting uWSGI..."
+exec uwsgi --ini /app/docker/uwsgi.ini

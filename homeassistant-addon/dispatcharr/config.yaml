@@ -1,0 +1,71 @@
+# Home Assistant Add-on: Dispatcharr
+# IPTV Stream Management Platform
+
+name: "Dispatcharr"
+description: "Self-hosted IPTV stream management platform with EPG auto-matching, HDHomeRun emulation, and Plex/Jellyfin integration"
+version: "0.16.01"
+slug: "dispatcharr"
+url: "https://github.com/dispatcharr/dispatcharr"
+arch:
+  - amd64
+  - aarch64
+init: false
+homeassistant_api: false
+host_network: false
+ingress: true
+ingress_port: 9191
+panel_icon: "mdi:television-box"
+panel_title: "Dispatcharr"
+
+# Map addon data to persistent storage
+map:
+  - addon_config:rw
+  - share:rw
+  - media:rw
+
+# Ports exposed by the addon
+ports:
+  9191/tcp: 9191
+  5004/tcp: 5004
+
+ports_description:
+  9191/tcp: "Web UI"
+  5004/tcp: "HDHomeRun"
+
+# Configuration options available to users
+options:
+  log_level: "info"
+  postgres_password: ""
+  enable_hardware_acceleration: false
+
+schema:
+  log_level: "list(trace|debug|info|warning|error)?"
+  postgres_password: "password?"
+  enable_hardware_acceleration: "bool?"
+
+# Startup priority
+startup: "application"
+stage: "stable"
+
+# Resource requirements
+timeout: 300
+
+# Labels for categorization
+image: "ghcr.io/{arch}-addon-dispatcharr"
+
+# Advanced options
+privileged: false
+full_access: false
+apparmor: true
+hassio_api: false
+
+# Device access for hardware acceleration
+devices:
+  - "/dev/dri:/dev/dri:rwm"
+
+# Video group for GPU access
+video: true
+
+# Environment variables
+environment:
+  DISPATCHARR_ENV: "aio"

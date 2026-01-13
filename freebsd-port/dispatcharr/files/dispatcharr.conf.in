@@ -1,0 +1,47 @@
+# Dispatcharr Configuration File
+# /usr/local/etc/dispatcharr/dispatcharr.conf
+#
+# This file is sourced by the rc.d scripts and sets environment variables
+# for the Dispatcharr application.
+
+# Django secret key (generate a unique value for production)
+# Use: python -c "import secrets; print(secrets.token_urlsafe(64))"
+DJANGO_SECRET_KEY="change-me-to-a-secure-random-string"
+
+# PostgreSQL Database Configuration
+POSTGRES_DB="dispatcharr"
+POSTGRES_USER="dispatch"
+POSTGRES_PASSWORD="secret"
+POSTGRES_HOST="localhost"
+POSTGRES_PORT="5432"
+
+# Redis Configuration
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+REDIS_DB="0"
+CELERY_BROKER_URL="redis://localhost:6379/0"
+CELERY_RESULT_BACKEND="redis://localhost:6379/0"
+
+# Application Settings
+DISPATCHARR_ENV="production"
+DISPATCHARR_DEBUG="false"
+DISPATCHARR_LOG_LEVEL="info"
+
+# Web Server Settings
+DISPATCHARR_PORT="9191"
+WEBSOCKET_PORT="8001"
+
+# Data Directories
+DISPATCHARR_DATA_DIR="%%DISPATCHARR_DATADIR%%"
+LOGOS_DIR="%%DISPATCHARR_DATADIR%%/logos"
+UPLOADS_DIR="%%DISPATCHARR_DATADIR%%/uploads"
+BACKUPS_DIR="%%DISPATCHARR_DATADIR%%/backups"
+PLUGINS_DIR="%%DISPATCHARR_DATADIR%%/plugins"
+
+# Export all variables for Django
+export DJANGO_SECRET_KEY POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
+export POSTGRES_HOST POSTGRES_PORT REDIS_HOST REDIS_PORT REDIS_DB
+export CELERY_BROKER_URL CELERY_RESULT_BACKEND
+export DISPATCHARR_ENV DISPATCHARR_DEBUG DISPATCHARR_LOG_LEVEL
+export DISPATCHARR_PORT WEBSOCKET_PORT DISPATCHARR_DATA_DIR
+export LOGOS_DIR UPLOADS_DIR BACKUPS_DIR PLUGINS_DIR
