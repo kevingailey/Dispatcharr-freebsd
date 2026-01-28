@@ -204,20 +204,24 @@ jobs:
       - name: Test package in FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.0"
+          release: "14.2"
           usesh: true
-          prepare: |
-            pkg update -f
-            pkg install -y bash git
-
+          mem: 4096
+          copyback: false
           run: |
             set -e
             echo "=== FreeBSD Package Test ==="
             freebsd-version
 
-            # Extract package
-            cd /root
-            tar -xzf /home/runner/work/*/*/package/*.tar.gz
+            # Install dependencies
+            env ASSUME_ALWAYS_YES=yes pkg bootstrap
+            pkg update -f
+            pkg install -y bash python311
+
+            # Extract package (files are synced to current directory)
+            echo "Looking for package..."
+            ls -la package/
+            tar -xzf package/*.tar.gz
 
             # Verify package contents
             PACKAGE_DIR=$(ls -d dispatcharr-* | head -1)
@@ -227,13 +231,13 @@ jobs:
 
             # Verify key files exist
             echo "Checking package contents..."
-            test -f freebsd_start.sh && echo "✓ freebsd_start.sh"
-            test -f install.sh && echo "✓ install.sh"
-            test -f manage.py && echo "✓ manage.py"
-            test -f requirements.txt && echo "✓ requirements.txt"
-            test -d frontend/dist && echo "✓ frontend/dist/"
-            test -d apps && echo "✓ apps/"
-            test -d core && echo "✓ core/"
+            test -f freebsd_start.sh && echo "[OK] freebsd_start.sh"
+            test -f install.sh && echo "[OK] install.sh"
+            test -f manage.py && echo "[OK] manage.py"
+            test -f requirements.txt && echo "[OK] requirements.txt"
+            test -d frontend/dist && echo "[OK] frontend/dist/"
+            test -d apps && echo "[OK] apps/"
+            test -d core && echo "[OK] core/"
 
             # Run compatibility tests
             echo ""
@@ -241,6 +245,11 @@ jobs:
             if [ -f tests/freebsd/test_freebsd_compat.sh ]; then
               chmod +x tests/freebsd/test_freebsd_compat.sh
               bash tests/freebsd/test_freebsd_compat.sh
+            fi
+
+            echo ""
+            if [ -f tests/freebsd/test_freebsd_script.py ]; then
+              python3.11 tests/freebsd/test_freebsd_script.py
             fi
 
             echo ""

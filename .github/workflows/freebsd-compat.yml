@@ -3,6 +3,8 @@
 # This workflow runs FreeBSD compatibility tests to ensure upstream changes
 # don't break the FreeBSD installation script.
 #
+# Uses vmactions/freebsd-vm for real FreeBSD VM testing.
+#
 # Triggers:
 #   - Push to main/master branches
 #   - Pull requests
@@ -18,6 +20,7 @@ on:
       - 'freebsd_start.sh'
       - 'requirements.txt'
       - 'tests/freebsd/**'
+      - 'scripts/ci_test.sh'
       - '.github/workflows/freebsd-compat.yml'
   pull_request:
     branches: [main, master]
@@ -27,12 +30,30 @@ on:
         description: 'Upstream branch to test against'
         required: false
         default: 'main'
+      freebsd_version:
+        description: 'FreeBSD version to test'
+        required: false
+        default: '14.2'
+        type: choice
+        options:
+          - '15.0'
+          - '14.2'
+          - '14.1'
+          - '13.5'
+      run_full_install:
+        description: 'Run full installation test (slower)'
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Run daily at 6 AM UTC to catch upstream changes
     - cron: '0 6 * * *'
 
+env:
+  FREEBSD_VERSION: ${{ inputs.freebsd_version || '14.2' }}
+
 jobs:
-  # Job 1: Static compatibility tests (runs on all platforms)
+  # Job 1: Static compatibility tests (runs on Ubuntu, fast)
   static-tests:
     name: Static Compatibility Tests
     runs-on: ubuntu-latest
@@ -51,7 +72,145 @@ jobs:
           chmod +x ./scripts/ci_test.sh
           ./scripts/ci_test.sh
 
-  # Job 2: Check for upstream changes (scheduled runs only)
+  # Job 2: FreeBSD VM Tests (real FreeBSD environment)
+  freebsd-vm-tests:
+    name: FreeBSD ${{ matrix.version }} VM Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['14.2']
+        # Uncomment to test multiple versions:
+        # version: ['14.2', '15.0', '13.5']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run tests in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.version }}
+          usesh: true
+          mem: 4096
+          copyback: false
+          run: |
+            set -e
+            echo "=========================================="
+            echo "FreeBSD $(freebsd-version) Test Environment"
+            echo "=========================================="
+
+            # Update pkg and install dependencies
+            echo ">>> Installing test dependencies..."
+            env ASSUME_ALWAYS_YES=yes pkg bootstrap
+            pkg update -f
+            pkg install -y bash python311
+
+            # Run the compatibility test suite
+            echo ""
+            echo ">>> Running shell compatibility tests..."
+            chmod +x tests/freebsd/test_freebsd_compat.sh
+            bash tests/freebsd/test_freebsd_compat.sh
+
+            echo ""
+            echo ">>> Running Python compatibility tests..."
+            python3.11 tests/freebsd/test_freebsd_script.py
+
+            echo ""
+            echo "=========================================="
+            echo "All FreeBSD VM tests passed!"
+            echo "=========================================="
+
+  # Job 3: Full Installation Test (optional, triggered manually or on schedule)
+  full-install-test:
+    name: Full Installation Test (FreeBSD VM)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_full_install)
+    needs: [static-tests, freebsd-vm-tests]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run full installation in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ env.FREEBSD_VERSION }}
+          usesh: true
+          mem: 8192
+          copyback: false
+          run: |
+            set -e
+            echo "=========================================="
+            echo "FreeBSD Full Installation Test"
+            echo "FreeBSD $(freebsd-version)"
+            echo "=========================================="
+
+            # Run the installation script with auto-confirm
+            echo ">>> Starting Dispatcharr installation..."
+            export DISPATCHARR_AUTO_CONFIRM=yes
+            chmod +x freebsd_start.sh
+            bash freebsd_start.sh
+
+            echo ""
+            echo ">>> Waiting for services to start..."
+            sleep 30
+
+            echo ""
+            echo ">>> Checking service status..."
+            FAILED=0
+
+            for svc in dispatcharr dispatcharr_celery dispatcharr_celerybeat dispatcharr_daphne nginx postgresql redis; do
+              if service $svc status >/dev/null 2>&1; then
+                echo "  [OK] $svc is running"
+              else
+                echo "  [FAIL] $svc is NOT running"
+                FAILED=$((FAILED + 1))
+              fi
+            done
+
+            echo ""
+            echo ">>> Checking application directories..."
+            for dir in /usr/local/dispatcharr /data/logos /data/recordings /data/db; do
+              if [ -d "$dir" ]; then
+                echo "  [OK] $dir exists"
+              else
+                echo "  [FAIL] $dir does not exist"
+                FAILED=$((FAILED + 1))
+              fi
+            done
+
+            echo ""
+            echo ">>> Checking PostgreSQL database..."
+            if su -l postgres -c "psql -lqt" | grep -q dispatcharr; then
+              echo "  [OK] Database 'dispatcharr' exists"
+            else
+              echo "  [FAIL] Database 'dispatcharr' not found"
+              FAILED=$((FAILED + 1))
+            fi
+
+            echo ""
+            echo ">>> Checking gunicorn socket..."
+            if [ -S /var/run/dispatcharr/dispatcharr.sock ]; then
+              echo "  [OK] Gunicorn socket exists"
+            else
+              echo "  [FAIL] Gunicorn socket not found"
+              FAILED=$((FAILED + 1))
+            fi
+
+            echo ""
+            if [ $FAILED -eq 0 ]; then
+              echo "=========================================="
+              echo "Full installation test PASSED!"
+              echo "=========================================="
+            else
+              echo "=========================================="
+              echo "Full installation test FAILED ($FAILED issues)"
+              echo "=========================================="
+              exit 1
+            fi
+
+  # Job 4: Check for upstream changes (scheduled runs only)
   check-upstream:
     name: Check Upstream Changes
     runs-on: ubuntu-latest
@@ -98,9 +257,9 @@ jobs:
             echo "No relevant upstream changes detected"
           fi
 
-  # Job 3: Test with upstream merge (when upstream has changes)
-  test-upstream-merge:
-    name: Test Upstream Merge
+  # Job 5: Test upstream merge in FreeBSD VM
+  test-upstream-in-freebsd:
+    name: Test Upstream Merge (FreeBSD VM)
     runs-on: ubuntu-latest
     needs: check-upstream
     if: needs.check-upstream.outputs.has_changes == 'true'
@@ -111,12 +270,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Add upstream and attempt merge
+      - name: Merge upstream changes
         id: merge
         run: |
           git config user.name "GitHub Actions"
@@ -129,17 +283,39 @@ jobs:
           if git merge upstream/main --no-commit --no-ff; then
             echo "merge_success=true" >> $GITHUB_OUTPUT
             echo "Upstream merge successful"
+            git commit -m "Merge upstream for testing" || true
           else
             echo "merge_success=false" >> $GITHUB_OUTPUT
             echo "Upstream merge has conflicts"
             git merge --abort || true
           fi
 
-      - name: Run compatibility tests after merge
+      - name: Test merged code in FreeBSD VM
         if: steps.merge.outputs.merge_success == 'true'
-        run: |
-          chmod +x ./scripts/ci_test.sh
-          ./scripts/ci_test.sh
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ env.FREEBSD_VERSION }}
+          usesh: true
+          mem: 4096
+          copyback: false
+          run: |
+            set -e
+            echo "=========================================="
+            echo "Testing Upstream Merge in FreeBSD"
+            echo "=========================================="
+
+            # Install dependencies
+            env ASSUME_ALWAYS_YES=yes pkg bootstrap
+            pkg update -f
+            pkg install -y bash python311
+
+            # Run compatibility tests
+            chmod +x tests/freebsd/test_freebsd_compat.sh
+            bash tests/freebsd/test_freebsd_compat.sh
+            python3.11 tests/freebsd/test_freebsd_script.py
+
+            echo ""
+            echo "Upstream merge is compatible with FreeBSD!"
 
       - name: Report merge conflicts
         if: steps.merge.outputs.merge_success == 'false'
@@ -147,11 +323,11 @@ jobs:
           echo "::warning::Upstream merge has conflicts that need manual resolution"
           echo "Check the FreeBSD-specific files for conflicts with upstream changes"
 
-  # Job 4: Create issue on failure (scheduled runs only)
+  # Job 6: Create issue on failure (scheduled runs only)
   create-issue-on-failure:
     name: Create Issue on Failure
     runs-on: ubuntu-latest
-    needs: [static-tests, test-upstream-merge]
+    needs: [static-tests, freebsd-vm-tests, test-upstream-in-freebsd]
     if: failure() && github.event_name == 'schedule'
 
     steps:
@@ -159,7 +335,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const title = `⚠️ FreeBSD Compatibility Test Failed - ${new Date().toISOString().split('T')[0]}`;
+            const title = `FreeBSD Compatibility Test Failed - ${new Date().toISOString().split('T')[0]}`;
             const body = `
             ## FreeBSD Compatibility Test Failure
 
